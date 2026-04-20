@@ -13,6 +13,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600;1,700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
@@ -1392,6 +1393,50 @@
     line-height: 1.5;
   }
   .first-setup strong { display: block; margin-bottom: 4px; font-weight: 700; }
+
+  /* Link cadastro ADM */
+  .adm-register-link {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--border);
+    text-align: center;
+    font-size: 13px;
+  }
+  .adm-register-label {
+    display: block;
+    color: var(--ink-dim);
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .adm-register-action {
+    color: var(--orange-deep);
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .adm-register-action:active { opacity: 0.7; }
+  .adm-register-link.disabled .adm-register-action {
+    color: var(--ink-dim);
+    pointer-events: none;
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  /* Botão voltar */
+  .back-link {
+    background: none;
+    border: none;
+    color: var(--ink-soft);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 8px 0;
+    margin-bottom: 8px;
+    text-align: left;
+    width: 100%;
+  }
+  .back-link:active { opacity: 0.6; }
 </style>
 </head>
 <body>
@@ -1446,22 +1491,30 @@
           <button type="submit" class="submit orange">Entrar como Líder</button>
         </form>
 
-        <form id="form-login-adm" style="display:none">
-          <div class="field">
-            <label class="label">Senha do ADM</label>
-            <input class="input" type="password" id="login-adm-senha" placeholder="••••••" required autocomplete="current-password">
+        <div id="wrapper-form-adm" style="display:none">
+          <form id="form-login-adm">
+            <div class="field">
+              <label class="label">Senha do ADM</label>
+              <input class="input" type="password" id="login-adm-senha" placeholder="••••••" required autocomplete="current-password">
+            </div>
+            <button type="submit" class="submit">Entrar como ADM</button>
+          </form>
+
+          <div class="adm-register-link" id="adm-register-link">
+            <span class="adm-register-label" id="adm-register-label">Ainda não há administrador cadastrado</span>
+            <a href="#" onclick="event.preventDefault(); abrirCadastroADM()" class="adm-register-action">Fazer cadastro</a>
           </div>
-          <button type="submit" class="submit">Entrar como ADM</button>
-        </form>
+        </div>
       </div>
     </div>
 
-    <!-- Primeiro acesso: criar senha ADM -->
+    <!-- Primeiro acesso: criar senha ADM (escondido por padrão, aparece quando clica em "Fazer cadastro") -->
     <div id="login-setup" style="display:none">
+      <button class="back-link" onclick="voltarParaLogin()">← Voltar para o login</button>
       <div class="login-card">
         <div class="first-setup">
-          <strong>Primeiro acesso</strong>
-          Defina a senha do administrador. Guarde bem — sem ela, ninguém pode gerenciar o sistema.
+          <strong>Cadastrar administrador</strong>
+          O sistema permite apenas 1 ADM. Guarde a senha bem — sem ela, ninguém pode gerenciar o sistema.
         </div>
         <form id="form-setup-adm">
           <div class="field">
@@ -1941,11 +1994,14 @@
 <nav class="bottom-nav" id="bottom-nav" style="display:none"></nav>
 
 <script>
-  // ============ CONFIGURAÇÃO DA API ============
-  const API_URL = 'https://script.google.com/macros/s/AKfycbx5L6AApJqcvHxsCwe0F4AKAy60LyDy5RTbEEAIyS3Cktgq9qsoCoR7vjVxCpDY1H6O/exec';
+  // ============ CONFIGURAÇÃO SUPABASE ============
+  const SUPABASE_URL = 'https://dhhvcfsjytcsvsceedla.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRoaHZjZnNqeXRjc3ZzY2VlZGxhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3MDg5NDAsImV4cCI6MjA5MjI4NDk0MH0.6kfNCphSUZ2WFY_2n5RnKytwi6_xRgm2TGiu4_TG5Xw';
 
-  // ============ SYNC API ============
-  let syncStatus = 'idle'; // idle | syncing | error | offline
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // ============ SYNC STATUS ============
+  let syncStatus = 'idle';
   let lastSyncTime = null;
 
   function updateSyncUI() {
@@ -1961,75 +2017,230 @@
     chip.className = 'sync-chip ' + syncStatus;
   }
 
+  // ============ API SUPABASE ============
   async function apiCall(action, body) {
+    syncStatus = 'syncing';
+    updateSyncUI();
     try {
-      syncStatus = 'syncing';
-      updateSyncUI();
-
-      const payload = { action, ...body };
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        mode: 'cors',
-        redirect: 'follow',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
-      });
-
-      const result = await response.json();
-      if (!result.ok) throw new Error(result.error || 'Erro desconhecido');
-
+      let result;
+      switch(action) {
+        case 'getAll': result = await dbGetAll(); break;
+        case 'addPerson': result = await dbAddPerson(body); break;
+        case 'updatePerson': result = await dbUpdatePerson(body); break;
+        case 'promoteVisitor': result = await dbPromoteVisitor(body); break;
+        case 'togglePresence': result = await dbTogglePresence(body); break;
+        case 'deletePerson': result = await dbDeletePerson(body); break;
+        case 'clearList': result = await dbClearList(body); break;
+        case 'getAuth': result = await dbGetAuth(); break;
+        case 'setAdmHash': result = await dbSetAdmHash(body); break;
+        case 'addLeader': result = await dbAddLeader(body); break;
+        case 'removeLeader': result = await dbRemoveLeader(body); break;
+        default: throw new Error('Ação desconhecida: ' + action);
+      }
       syncStatus = 'idle';
       lastSyncTime = new Date();
       updateSyncUI();
-      return result.data;
-    } catch (err) {
-      console.error('API error:', err);
+      return result;
+    } catch(err) {
+      console.error('[Supabase] Erro em', action, err);
       syncStatus = navigator.onLine ? 'error' : 'offline';
       updateSyncUI();
       throw err;
     }
   }
 
+  async function dbGetAll() {
+    const [pessoasRes, presencasRes, configRes] = await Promise.all([
+      sb.from('pessoas').select('*').order('data_cadastro'),
+      sb.from('presencas').select('*'),
+      sb.from('config').select('*').eq('chave', 'pgs').maybeSingle()
+    ]);
+
+    if (pessoasRes.error) throw pessoasRes.error;
+    if (presencasRes.error) throw presencasRes.error;
+
+    const mapPerson = (p) => ({
+      id: p.id,
+      nome: p.nome,
+      nascimento: p.nascimento || '',
+      telefone: p.telefone || '',
+      pg: p.pg || 'sem',
+      data_cadastro: p.data_cadastro,
+      cadastrado_por: p.cadastrado_por || '',
+      data_conversao: p.data_conversao,
+      promovido_por: p.promovido_por,
+      era_visitante_desde: p.era_visitante_desde
+    });
+
+    const membros = pessoasRes.data.filter(p => p.tipo === 'membro').map(mapPerson);
+    const visitantes = pessoasRes.data.filter(p => p.tipo === 'visitante').map(mapPerson);
+
+    const presencas = {};
+    presencasRes.data.forEach(p => {
+      const d = p.data_sabado;
+      if (!presencas[d]) presencas[d] = {};
+      presencas[d][p.pessoa_id] = true;
+    });
+
+    let pgs = ['1','2','3','4'];
+    if (configRes.data && configRes.data.valor) {
+      try { pgs = JSON.parse(configRes.data.valor); } catch(e) {}
+    }
+
+    return { membros, visitantesList: visitantes, presencas, pgs };
+  }
+
+  async function dbAddPerson({ tipo, pessoa }) {
+    const row = {
+      id: pessoa.id,
+      tipo: tipo,
+      nome: pessoa.nome,
+      nascimento: pessoa.nascimento || null,
+      telefone: pessoa.telefone,
+      pg: pessoa.pg || 'sem',
+      data_cadastro: pessoa.data_cadastro,
+      cadastrado_por: pessoa.cadastrado_por || '',
+      data_conversao: pessoa.data_conversao || null,
+      promovido_por: pessoa.promovido_por || null,
+      era_visitante_desde: pessoa.era_visitante_desde || null
+    };
+    const { error } = await sb.from('pessoas').insert(row);
+    if (error) throw error;
+    return { added: true };
+  }
+
+  async function dbUpdatePerson({ tipo, pessoa }) {
+    const { error } = await sb.from('pessoas').update({
+      nome: pessoa.nome,
+      nascimento: pessoa.nascimento || null,
+      telefone: pessoa.telefone,
+      pg: pessoa.pg || 'sem'
+    }).eq('id', pessoa.id);
+    if (error) throw error;
+    return { updated: true };
+  }
+
+  async function dbPromoteVisitor({ pessoaId, promovidoPor }) {
+    const { error } = await sb.from('pessoas').update({
+      tipo: 'membro',
+      data_conversao: new Date().toISOString(),
+      promovido_por: promovidoPor
+    }).eq('id', pessoaId);
+    if (error) throw error;
+    return { promoted: true };
+  }
+
+  async function dbTogglePresence({ dataSabado, pessoaId, nomePessoa, tipo, marcadoPor, presente }) {
+    if (presente) {
+      const { error } = await sb.from('presencas').upsert({
+        data_sabado: dataSabado,
+        pessoa_id: pessoaId,
+        nome_pessoa: nomePessoa,
+        tipo: tipo,
+        marcado_por: marcadoPor,
+        marcado_em: new Date().toISOString()
+      }, { onConflict: 'data_sabado,pessoa_id' });
+      if (error) throw error;
+    } else {
+      const { error } = await sb.from('presencas').delete()
+        .eq('data_sabado', dataSabado).eq('pessoa_id', pessoaId);
+      if (error) throw error;
+    }
+    return { toggled: true, presente };
+  }
+
+  async function dbDeletePerson({ tipo, pessoaId }) {
+    const { error } = await sb.from('pessoas').delete().eq('id', pessoaId);
+    if (error) throw error;
+    return { deleted: true };
+  }
+
+  async function dbClearList({ tipo }) {
+    const { error } = await sb.from('pessoas').delete().eq('tipo', tipo);
+    if (error) throw error;
+    return { cleared: true };
+  }
+
+  async function dbGetAuth() {
+    const [admRes, lideresRes] = await Promise.all([
+      sb.from('config').select('valor').eq('chave', 'admHash').maybeSingle(),
+      sb.from('lideres').select('nome, senha_hash')
+    ]);
+    if (lideresRes.error) throw lideresRes.error;
+    return {
+      admHash: admRes.data ? admRes.data.valor : null,
+      lideres: (lideresRes.data || []).map(l => ({ nome: l.nome, senhaHash: l.senha_hash }))
+    };
+  }
+
+  async function dbSetAdmHash({ admHash }) {
+    const { error } = await sb.from('config').upsert({ chave: 'admHash', valor: admHash });
+    if (error) throw error;
+    return { saved: true };
+  }
+
+  async function dbAddLeader({ nome, senhaHash }) {
+    const { error } = await sb.from('lideres').insert({ nome, senha_hash: senhaHash });
+    if (error) {
+      if (error.code === '23505') return { added: false, reason: 'Já existe' };
+      throw error;
+    }
+    return { added: true };
+  }
+
+  async function dbRemoveLeader({ nome }) {
+    const { error } = await sb.from('lideres').delete().eq('nome', nome);
+    if (error) throw error;
+    return { removed: true };
+  }
+
+  async function salvarPGsRemoto() {
+    try {
+      await sb.from('config').upsert({ chave: 'pgs', valor: JSON.stringify(data.pgs || []) });
+    } catch(e) { console.error('[PGs] Erro ao salvar:', e); }
+  }
+
+  // ============ SINCRONIZAR ============
   async function sincronizarDoServidor() {
     try {
       const dadosRemotos = await apiCall('getAll', {});
-      console.log('[Sync] Dados recebidos:', dadosRemotos);
 
       const validarPessoa = (p) => p && p.id && p.nome;
       const membrosValidos = (dadosRemotos.membros || []).filter(validarPessoa);
       const visitantesValidos = (dadosRemotos.visitantesList || []).filter(validarPessoa);
 
-      console.log('[Sync] Membros válidos:', membrosValidos.length, 'Visitantes válidos:', visitantesValidos.length);
-
-      // Preserva auth local e lista de PGs (ficam só no celular)
       const authLocal = data.auth;
-      const pgsLocal = data.pgs;
       data = {
         visitante: visitantesValidos,
         membro: membrosValidos,
         presencas: dadosRemotos.presencas || {},
-        pgs: pgsLocal,
+        pgs: (dadosRemotos.pgs && dadosRemotos.pgs.length > 0) ? dadosRemotos.pgs : (data.pgs || ['1','2','3','4']),
         auth: authLocal
       };
       saveData();
 
-      // Auto-descobre PGs que vieram nos cadastros mas não estão na lista
+      // Auto-descobre PGs vindos nos cadastros
       const pgsDescobertos = new Set(data.pgs || []);
+      let adicionou = false;
       [...membrosValidos, ...visitantesValidos].forEach(p => {
         if (p.pg && p.pg !== 'sem' && p.pg !== '' && !pgsDescobertos.has(String(p.pg))) {
           pgsDescobertos.add(String(p.pg));
+          adicionou = true;
         }
       });
-      data.pgs = Array.from(pgsDescobertos);
-      saveData();
+      if (adicionou) {
+        data.pgs = Array.from(pgsDescobertos);
+        saveData();
+        salvarPGsRemoto();
+      }
       popularSelectsPG();
 
-      // Re-renderiza a view atual (AGUARDA sync terminar)
       const activeView = document.querySelector('.view.active');
       if (activeView) {
         const viewId = activeView.id.replace('view-', '');
         if (viewId === 'lista') renderList();
         if (viewId === 'presenca') renderPresenca();
+        if (viewId === 'dashboard') renderDashboard();
         if (viewId === 'relatorios') renderRelatorios();
       }
       return true;
@@ -2074,30 +2285,97 @@
   });
 
   // ============ LOGIN UI ============
+  // ============ NAVEGAÇÃO LOGIN/CADASTRO ADM ============
+  function abrirCadastroADM() {
+    // Verifica se já existe ADM antes de mostrar tela de cadastro
+    if (data.auth && data.auth.admHash) {
+      showToast('Já existe um administrador cadastrado', true);
+      return;
+    }
+    document.getElementById('login-normal').style.display = 'none';
+    document.getElementById('login-setup').style.display = 'block';
+    document.getElementById('login-sub').textContent = 'Cadastre o administrador do sistema';
+  }
+
+  function voltarParaLogin() {
+    document.getElementById('login-setup').style.display = 'none';
+    document.getElementById('login-normal').style.display = 'block';
+    document.getElementById('login-sub').textContent = 'Entre para acessar o sistema';
+    // Garante que está na aba Líder
+    document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector('.login-tab[data-role="lider"]').classList.add('active');
+    document.getElementById('form-login-lider').style.display = 'block';
+    document.getElementById('wrapper-form-adm').style.display = 'none';
+  }
+
+  function atualizarLinkCadastroADM() {
+    const link = document.getElementById('adm-register-link');
+    const label = document.getElementById('adm-register-label');
+    if (!link || !label) return;
+
+    if (data.auth && data.auth.admHash) {
+      // Já tem ADM cadastrado
+      link.classList.add('disabled');
+      label.textContent = 'Administrador já cadastrado';
+    } else {
+      link.classList.remove('disabled');
+      label.textContent = 'Ainda não há administrador cadastrado';
+    }
+  }
+
+  // ============ LOGIN UI ============
   document.querySelectorAll('.login-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       const role = tab.dataset.role;
       document.getElementById('form-login-lider').style.display = role === 'lider' ? 'block' : 'none';
-      document.getElementById('form-login-adm').style.display = role === 'adm' ? 'block' : 'none';
+      document.getElementById('wrapper-form-adm').style.display = role === 'adm' ? 'block' : 'none';
+      // Atualiza o status do link de cadastro sempre que mostra a aba ADM
+      if (role === 'adm') atualizarLinkCadastroADM();
     });
   });
 
   // Setup inicial (primeira vez)
   document.getElementById('form-setup-adm').addEventListener('submit', async (e) => {
     e.preventDefault();
+
+    // Checagem final: busca na planilha se já existe ADM (evita criar 2)
+    try {
+      const authRemoto = await apiCall('getAuth', {});
+      if (authRemoto && authRemoto.admHash) {
+        data.auth.admHash = authRemoto.admHash;
+        saveData();
+        showToast('Já existe um administrador cadastrado', true);
+        voltarParaLogin();
+        return;
+      }
+    } catch(err) {
+      // Se não conseguir consultar, segue com fluxo local
+    }
+
     const s1 = document.getElementById('setup-senha').value;
     const s2 = document.getElementById('setup-senha-confirm').value;
     if (s1 !== s2) { showToast('As senhas não coincidem', true); return; }
     if (s1.length < 4) { showToast('Mínimo 4 caracteres', true); return; }
-    data.auth.admHash = await hashSenha(s1);
-    saveData();
+
+    const hash = await hashSenha(s1);
+
+    // Salva na planilha
+    try {
+      await apiCall('setAdmHash', { admHash: hash });
+      data.auth.admHash = hash;
+      saveData();
+    } catch(err) {
+      showToast('Erro ao salvar. Verifique a conexão.', true);
+      return;
+    }
+
     document.getElementById('form-setup-adm').reset();
     currentUser = { role: 'adm', name: 'ADM' };
     sessionStorage.setItem('luzeiro-session', JSON.stringify(currentUser));
     entrarNoApp();
-    showToast('Senha criada! Bem-vindo(a)');
+    showToast('ADM cadastrado! Bem-vindo(a)');
   });
 
   // Login ADM
@@ -2105,6 +2383,16 @@
     e.preventDefault();
     const senha = document.getElementById('login-adm-senha').value;
     const hash = await hashSenha(senha);
+
+    // Busca hash mais recente da planilha
+    try {
+      const authRemoto = await apiCall('getAuth', {});
+      if (authRemoto && authRemoto.admHash) {
+        data.auth.admHash = authRemoto.admHash;
+        saveData();
+      }
+    } catch(err) {}
+
     if (hash === data.auth.admHash) {
       currentUser = { role: 'adm', name: 'ADM' };
       sessionStorage.setItem('luzeiro-session', JSON.stringify(currentUser));
@@ -2121,6 +2409,18 @@
     const nome = document.getElementById('login-lider-nome').value.trim();
     const senha = document.getElementById('login-lider-senha').value;
     const hash = await hashSenha(senha);
+
+    // Busca lista atualizada de líderes da planilha
+    try {
+      const authRemoto = await apiCall('getAuth', {});
+      if (authRemoto) {
+        data.auth.lideres = authRemoto.lideres || [];
+        saveData();
+      }
+    } catch(err) {
+      // Se falhar, usa cache local
+    }
+
     const lider = data.auth.lideres.find(l =>
       l.nome.toLowerCase() === nome.toLowerCase() && l.senhaHash === hash
     );
@@ -2152,7 +2452,7 @@
       document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
       document.querySelector('.login-tab[data-role="lider"]').classList.add('active');
       document.getElementById('form-login-lider').style.display = 'block';
-      document.getElementById('form-login-adm').style.display = 'none';
+      document.getElementById('wrapper-form-adm').style.display = 'none';
       fecharModal();
       // Restaurar cor do botão
       document.getElementById('modal-confirm-btn').style.background = '';
@@ -2396,8 +2696,8 @@
       if (data.pgs.includes(novoNome)) { showToast('Esse PG já existe', true); return; }
       data.pgs.push(novoNome);
       saveData();
+      salvarPGsRemoto();
       popularSelectsPG();
-      // Seleciona automaticamente o novo PG no formulário
       const sel = document.getElementById('pg');
       if (sel) sel.value = novoNome;
       fecharModal();
@@ -2457,6 +2757,7 @@
     if (temPessoas) { showToast('Existe pessoas nesse PG', true); return; }
     data.pgs = data.pgs.filter(p => p !== pgNome);
     saveData();
+    salvarPGsRemoto();
     popularSelectsPG();
     fecharModal();
     showToast(`PG ${pgNome} removido`);
@@ -3205,6 +3506,19 @@
     }
 
     const senhaHash = await hashSenha(senha);
+
+    // Salva na planilha
+    try {
+      const resultado = await apiCall('addLeader', { nome, senhaHash });
+      if (!resultado || resultado.added === false) {
+        showToast('Não foi possível salvar na planilha', true);
+        return;
+      }
+    } catch(err) {
+      showToast('Erro de conexão. Tente novamente.', true);
+      return;
+    }
+
     data.auth.lideres.push({ nome, senhaHash });
     saveData();
     document.getElementById('form-novo-lider').reset();
@@ -3237,7 +3551,13 @@
     document.getElementById('modal-text').textContent = 'Este líder perderá o acesso ao sistema.';
     document.getElementById('modal-confirm-btn').textContent = 'Remover';
     document.getElementById('modal-confirm-btn').style.background = '';
-    document.getElementById('modal-confirm-btn').onclick = () => {
+    document.getElementById('modal-confirm-btn').onclick = async () => {
+      const liderNome = lider.nome;
+      try {
+        await apiCall('removeLeader', { nome: liderNome });
+      } catch(err) {
+        showToast('Erro ao sincronizar. Tentando localmente...', true);
+      }
       data.auth.lideres.splice(idx, 1);
       saveData();
       renderEquipe();
@@ -3264,7 +3584,14 @@
       showToast('Senha atual incorreta', true);
       return;
     }
-    data.auth.admHash = await hashSenha(nova);
+    const novoHash = await hashSenha(nova);
+    try {
+      await apiCall('setAdmHash', { admHash: novoHash });
+    } catch(err) {
+      showToast('Erro ao salvar na planilha', true);
+      return;
+    }
+    data.auth.admHash = novoHash;
     saveData();
     fecharModalSenha();
     showToast('Senha alterada com sucesso');
@@ -3434,23 +3761,31 @@
   }
 
   // ============ INICIALIZAÇÃO ============
-  function inicializar() {
+  async function inicializar() {
     loadData();
 
-    // Se não tem senha ADM, mostra setup inicial
-    if (!data.auth.admHash) {
-      document.getElementById('login-normal').style.display = 'none';
-      document.getElementById('login-setup').style.display = 'block';
-      document.getElementById('login-sub').textContent = 'Primeiro, crie a senha do administrador';
-      return;
+    // Busca autenticação da planilha (compartilhada entre todos)
+    try {
+      const authRemoto = await apiCall('getAuth', {});
+      if (authRemoto) {
+        data.auth.admHash = authRemoto.admHash || null;
+        data.auth.lideres = authRemoto.lideres || [];
+        saveData();
+      }
+    } catch(e) {
+      console.warn('[Init] Sem conexão com a planilha, usando cache local');
     }
 
-    // Sempre pede login (mesmo se tinha sessão, removemos pra forçar)
+    // Sempre pede login
     sessionStorage.removeItem('luzeiro-session');
 
-    // Mostra tela de login normal
+    // Sempre mostra o login normal (ADM + Líder)
     document.getElementById('login-normal').style.display = 'block';
     document.getElementById('login-setup').style.display = 'none';
+    document.getElementById('login-sub').textContent = 'Entre para acessar o sistema';
+
+    // Atualiza o status do link de cadastro ADM
+    atualizarLinkCadastroADM();
   }
 
   inicializar();
